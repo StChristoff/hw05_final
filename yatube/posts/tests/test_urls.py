@@ -118,7 +118,7 @@ class PostURLTests(TestCase):
 
     def test_redirect_follow_unfollow_on_post_index(self):
         """Проверяем переадресацию на follow_index после подписки/отписки"""
-        request_list = [PostURLTests.follow_url, PostURLTests.unfollow_url,]
+        request_list = [PostURLTests.follow_url, PostURLTests.unfollow_url]
         for request in request_list:
             with self.subTest(request=request):
                 response = self.authorized_client.get(request, follow=True)
