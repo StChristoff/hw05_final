@@ -2,7 +2,7 @@ from django.shortcuts import redirect, render, get_object_or_404
 from django.contrib.auth.decorators import login_required
 
 from .forms import PostForm, CommentForm
-from .models import Post, Group, User, Comment, Follow
+from .models import Post, Group, User, Follow
 from .utils import pag
 
 
@@ -30,12 +30,13 @@ def profile(request, username):
     author = get_object_or_404(User, username=username)
     post_list = author.posts.all()
     page_obj = pag(request, post_list)
-    following = False
-    if request.user.is_authenticated:
-        following = Follow.objects.filter(
+    following = (
+        request.user.is_authenticated
+        and Follow.objects.filter(
             user=request.user,
             author=author,
         ).exists()
+    )
     context = {
         'author': author,
         'page_obj': page_obj,
@@ -46,7 +47,7 @@ def profile(request, username):
 
 def post_detail(request, post_id):
     post = get_object_or_404(Post, pk=post_id)
-    comments = Comment.objects.filter(post=post_id)
+    comments = post.comments.all()
     form = CommentForm()
     context = {
         'post': post,
@@ -126,6 +127,5 @@ def profile_follow(request, username):
 @login_required
 def profile_unfollow(request, username):
     author = get_object_or_404(User, username=username)
-    if author != request.user:
-        Follow.objects.filter(user=request.user, author=author).delete()
+    Follow.objects.filter(user=request.user, author=author).delete()
     return redirect('posts:follow_index')

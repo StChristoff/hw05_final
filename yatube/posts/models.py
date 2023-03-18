@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.constraints import UniqueConstraint
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -9,7 +10,8 @@ SYM_NUM = 15
 class Post(models.Model):
     text = models.TextField(
         verbose_name='Текст поста',
-        help_text='Введите текст поста',)
+        help_text='Введите текст поста',
+    )
     pub_date = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Дата публикации',
@@ -71,7 +73,8 @@ class Group(models.Model):
 class Comment(models.Model):
     text = models.TextField(
         verbose_name='Текст комментария',
-        help_text='Введите текст комментария',)
+        help_text='Введите текст комментария',
+    )
     created = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Дата публикации',
@@ -109,13 +112,14 @@ class Follow(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='following',
-        verbose_name='Автор',
+        verbose_name='Подписан на автора',
     )
 
     class Meta:
         ordering = ('author',)
         verbose_name = 'Подписка'
         verbose_name_plural = 'Подписки'
+        UniqueConstraint(fields=['user', 'author'], name='Уникальная пара')
 
     def __str__(self):
-        return f'Подписка на {self.author}'
+        return f'Подписка {self.user} на {self.author}'

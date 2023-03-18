@@ -3,6 +3,7 @@ import tempfile
 
 from django import forms
 from django.conf import settings
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -42,6 +43,11 @@ class PostsViewsTests(TestCase):
             text='Тестовый пост',
             group=cls.group,
             image=cls.uploaded,
+        )
+        cls.test_comment = Comment.objects.create(
+            author=cls.user,
+            text='Тестовый комментарий',
+            post=cls.test_post,
         )
         cls.NAME_TEMPL = {
             'INDEX': (reverse('posts:index'), 'posts/index.html'),
@@ -119,14 +125,25 @@ class PostsViewsTests(TestCase):
             PostsViewsTests.NAME_TEMPL['PROFILE'][0]
         )
         self.assertEqual(response.context['author'], PostsViewsTests.user)
+        self.assertIsInstance(response.context['following'], bool)
         self.response_processing_post(response)
 
     def test_post_detail_page_show_correct_context(self):
-        """Проверяем формирование страницы поста."""
+        """Проверяем формирование страницы поста
+        и, что после успешной отправки, комментарий
+        появляется на странице поста"""
         response = self.authorized_client.get(
             PostsViewsTests.NAME_TEMPL['DETAIL'][0]
         )
+        self.assertIn(
+            PostsViewsTests.test_comment,
+            response.context['comments']
+        )
         self.response_processing_post(response)
+        self.assertIsInstance(
+            response.context.get('form').fields.get('text'),
+            forms.fields.CharField
+        )
 
     def test_post_create_page_show_correct_context(self):
         """Проверяем формирование страницы создания поста."""
@@ -241,56 +258,78 @@ class PostsViewsTests(TestCase):
                 form_field = response.context.get('form').fields.get(field)
                 self.assertIsInstance(form_field, expected_field)
 
-    def test_created_comment_show_on_post_detail(self):
-        """Проверяем, что после успешной отправки комментарий
-        появляется на странице поста"""
-        comment = Comment.objects.create(
-            text='Тестовый комментарий',
-            post=PostsViewsTests.test_post,
-            author=PostsViewsTests.user,
-        )
-        response = self.authorized_client.get(
-            PostsViewsTests.NAME_TEMPL['DETAIL'][0]
-        )
-        self.assertIn(comment, response.context['comments'])
-
     def test_avialable_cached_post(self):
         """Проверяем, что пост доступен из кэша после удаления"""
-        Post.objects.all().delete()
-        response = self.authorized_client.get(
+        content_before = self.authorized_client.get(
             PostsViewsTests.NAME_TEMPL['INDEX'][0]
-        )
-        self.assertIsNotNone(response.content)
+        ).content
+        Post.objects.all().delete()
+        content_after = self.authorized_client.get(
+            PostsViewsTests.NAME_TEMPL['INDEX'][0]
+        ).content
+        self.assertEqual(content_before, content_after)
+        cache.clear()
+        content_clear_cache = self.authorized_client.get(
+            PostsViewsTests.NAME_TEMPL['INDEX'][0]
+        ).content
+        self.assertNotEqual(content_after, content_clear_cache)
 
-    def test_follow_unfollow_auth_client(self):
+    def test_follow_auth_client(self):
         """Проверяем, что только авторизованный пользователь может
-        подписываться на других пользователей и удалять их из подписок"""
+        подписываться на других пользователей"""
         Follow.objects.all().delete()
-        responses = {
-            'follow': reverse(
+        self.authorized_client_2.get(
+            reverse(
                 'posts:profile_follow',
                 kwargs={'username': PostsViewsTests.user.username}
-            ),
-            'unfollow': reverse(
+            )
+        )
+        self.assertTrue(
+            Follow.objects.filter(
+                user=PostsViewsTests.user_2,
+                author=PostsViewsTests.user
+            ).exists()
+        )
+
+    def test_unfollow_auth_client(self):
+        """Проверяем, что только авторизованный пользователь может
+        удалять других пользователей из своих подписок"""
+        Follow.objects.get_or_create(
+            user=PostsViewsTests.user_2,
+            author=PostsViewsTests.user
+        )
+        self.authorized_client_2.get(
+            reverse(
                 'posts:profile_unfollow',
                 kwargs={'username': PostsViewsTests.user.username}
             )
-        }
-        for name, reverse_name in responses.items():
-            with self.subTest(name=name):
-                self.authorized_client_2.get(reverse_name)
-                follow = Follow.objects.filter(
-                    user=PostsViewsTests.user_2,
-                    author=PostsViewsTests.user
-                ).exists()
-                if name == 'follow':
-                    self.assertTrue(follow)
-                else:
-                    self.assertFalse(follow)
+        )
+        self.assertFalse(
+            Follow.objects.filter(
+                user=PostsViewsTests.user_2,
+                author=PostsViewsTests.user
+            ).exists()
+        )
 
     def test_new_post_only_in_follows(self):
-        """Проверяем, что новая запись пользователя появляется только в
-        ленте тех, кто на него подписан"""
+        """Проверяем, что новая запись пользователя появляется в ленте тех,
+        кто на него подписан"""
+        Follow.objects.get_or_create(
+            user=PostsViewsTests.user_2,
+            author=PostsViewsTests.user
+        )
+        test_post = Post.objects.create(
+            author=PostsViewsTests.user,
+            text='Проверка подписки',
+        )
+        response = self.authorized_client_2.get(
+            PostsViewsTests.NAME_TEMPL['FOLLOW'][0]
+        )
+        self.assertIn(test_post, response.context['page_obj'])
+
+    def test_new_post_only_in_follows(self):
+        """Проверяем, что новая запись пользователя не появляется в ленте тех,
+        кто на него не подписан"""
         user_3 = User.objects.create_user(username='not_follows')
         self.authorized_client_3 = Client()
         self.authorized_client_3.force_login(user_3)
@@ -302,14 +341,7 @@ class PostsViewsTests(TestCase):
             author=PostsViewsTests.user,
             text='Проверка подписки',
         )
-        clients = {
-            'follows': self.authorized_client_2,
-            'not_follows': self.authorized_client_3
-        }
-        for name, client in clients.items():
-            with self.subTest(name=name):
-                response = client.get(PostsViewsTests.NAME_TEMPL['FOLLOW'][0])
-                if name == 'follows':
-                    self.assertIn(test_post, response.context['page_obj'])
-                else:
-                    self.assertNotIn(test_post, response.context['page_obj'])
+        response = self.authorized_client_3.get(
+            PostsViewsTests.NAME_TEMPL['FOLLOW'][0]
+        )
+        self.assertNotIn(test_post, response.context['page_obj'])

@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from ..models import Post, Group, User
+from ..models import Post, Group, User, Comment
 
 TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
 
@@ -46,7 +46,9 @@ class PostFormTests(TestCase):
         self.authorized_client.force_login(PostFormTests.user)
 
     def test_post_create(self):
-        """Проверяем, что форма создаёт пост"""
+        """Проверяем, что форма создаёт пост,
+        пост соответствует данным, переданным из формы
+        и происходит редирект на страницу posts:profile"""
         posts_count = Post.objects.count()
         uploaded = SimpleUploadedFile(
             name='small.gif',
@@ -71,9 +73,18 @@ class PostFormTests(TestCase):
             )
         )
         self.assertEqual(Post.objects.count(), posts_count + 1)
+        self.assertTrue(
+            Post.objects.filter(
+                text=form['text'],
+                group=form['group'],
+                image='posts/small.gif',
+            ).exists()
+        )
 
     def test_post_edit(self):
-        """Проверяем, что валидная форма изменяет пост"""
+        """Проверяем, что валидная форма изменяет пост,
+        пост соответствует данным, переданным из формы
+        и происходит редирект на страницу posts:post_detail"""
         posts_count = Post.objects.count()
         group_2 = Group.objects.create(
             title='Тестовая группа_2',
@@ -100,10 +111,7 @@ class PostFormTests(TestCase):
         )
         self.assertRedirects(
             response,
-            reverse(
-                'posts:post_detail',
-                args={PostFormTests.post.id}
-            )
+            reverse('posts:post_detail', args={PostFormTests.post.id})
         )
         self.assertEqual(Post.objects.count(), posts_count)
         self.assertTrue(
@@ -111,5 +119,23 @@ class PostFormTests(TestCase):
                 id=self.post.id,
                 text=form['text'],
                 group=form['group'],
+                image='posts/small_2.gif',
             ).exists()
         )
+
+    def test_comment_create(self):
+        """Проверяем, что форма создаёт комментарий,
+        текст комментария соответствует данным, переданным из формы
+        и происходит редирект на страницу posts:post_detail"""
+        comm_count = Comment.objects.count()
+        form = {'text': 'Тестовый комментарий_1'}
+        response = self.authorized_client.post(
+            reverse('posts:add_comment', args={PostFormTests.post.id}),
+            data=form,
+            follow=True
+        )
+        self.assertRedirects(
+            response,
+            reverse('posts:post_detail', args={PostFormTests.post.id})
+        )
+        self.assertEqual(Comment.objects.count(), comm_count + 1)
