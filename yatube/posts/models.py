@@ -119,7 +119,12 @@ class Follow(models.Model):
         ordering = ('author',)
         verbose_name = 'Подписка'
         verbose_name_plural = 'Подписки'
-        UniqueConstraint(fields=['user', 'author'], name='Уникальная пара')
+        constraints = [
+            UniqueConstraint(
+                fields=['user', 'author'],
+                name='Уникальная пара: подписчик-автор'
+            )
+        ]
 
     def __str__(self):
         return f'Подписка {self.user} на {self.author}'
