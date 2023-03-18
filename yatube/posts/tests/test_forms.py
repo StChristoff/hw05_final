@@ -77,7 +77,7 @@ class PostFormTests(TestCase):
             Post.objects.filter(
                 text=form['text'],
                 group=form['group'],
-                image='posts/small.gif',
+                image='posts/' + uploaded.name,
             ).exists()
         )
 
@@ -119,7 +119,7 @@ class PostFormTests(TestCase):
                 id=self.post.id,
                 text=form['text'],
                 group=form['group'],
-                image='posts/small_2.gif',
+                image='posts/' + uploaded_2.name,
             ).exists()
         )
 
